@@ -1,0 +1,13 @@
+{
+  "name": "claude-inline-maps",
+  "owner": {
+    "name": "mraad"
+  },
+  "description": "Claude Code mod that draws maps from ArcGIS and OGC services inline in the terminal",
+  "plugins": [
+    {
+      "name": "inline-maps",
+      "source": "./"
+    }
+  ]
+}
