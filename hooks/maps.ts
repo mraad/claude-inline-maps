@@ -6,7 +6,7 @@ export type TMarker = { lon: number; lat: number; label?: string }
 export type TFrame = { projection: 'degrees' | 'mercator'; extent: TBbox }
 
 // What to download: one image URL, or XYZ tiles to stitch into a grid.
-type TPlanBase = { source: string; caption: string; frame?: TFrame; marker?: TMarker }
+type TPlanBase = { source: string; caption: string; frame?: TFrame; markers?: TMarker[] }
 export type TPlan =
   | (TPlanBase & { kind: 'image'; url: string; accept?: string })
   | (TPlanBase & { kind: 'tiles'; urls: string[]; columns: number; rows: number })
@@ -15,6 +15,7 @@ const DEFAULT_WIDTH = 800
 const MAX_WIDTH = 2000
 const MAX_TILES_PER_SIDE = 4
 const MAX_ZOOM = 18
+const MAX_MARKERS = 20
 const WORLD: TBbox = [-180, -85, 180, 85]
 
 export const parseBbox = (text?: string): TBbox | null => {
@@ -34,8 +35,7 @@ export const parseBbox = (text?: string): TBbox | null => {
 }
 
 // "lon,lat" or "lon,lat,label"; the label keeps any further commas.
-export const parseMarker = (text?: string): TMarker | null => {
-  if (!text) return null
+const parseMarker = (text: string): TMarker | null => {
   const [lonText = '', latText = '', ...rest] = text.split(',')
   const lon = Number(lonText.trim())
   const lat = Number(latText.trim())
@@ -45,6 +45,12 @@ export const parseMarker = (text?: string): TMarker | null => {
   // One line, short: the label goes in the caption, and /map's row text is parsed back line by line.
   const label = rest.join(',').replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, 80)
   return label ? { lon, lat, label } : { lon, lat }
+}
+
+// One or more markers separated by ";"; empty entries are skipped, one bad entry refuses all.
+export const parseMarkers = (text?: string): TMarker[] | null => {
+  const markers = (text ?? '').split(';').filter(part => part.trim()).map(parseMarker)
+  return markers.length && markers.every(Boolean) ? (markers as TMarker[]) : null
 }
 
 // Keeps the aspect when the height hits the cap: WMS would stretch the picture, ArcGIS would widen the extent.
@@ -311,17 +317,18 @@ export const plan = async (input: TInput, get: TText): Promise<TPlan> => {
 
   const bbox = parseBbox(input.bbox)
   if (input.bbox && !bbox) throw new Error('bbox must be minx,miny,maxx,maxy in degrees (EPSG:4326)')
-  const marker = parseMarker(input.marker)
-  if (input.marker && !marker) throw new Error('marker must be lon,lat[,label] in degrees (EPSG:4326)')
+  const markers = parseMarkers(input.marker)
+  if (input.marker && !markers) throw new Error('marker must be lon,lat[,label] in degrees (EPSG:4326), several separated by ";"')
+  if (markers && markers.length > MAX_MARKERS) throw new Error(`at most ${MAX_MARKERS} markers`)
 
   const planned = await planFor(input, bbox, get)
-  if (!marker) return planned
+  if (!markers) return planned
   if (!planned.frame) throw new Error('this map service picks its own extent; pass bbox to place a marker')
   const [minx, miny, maxx, maxy] = planned.frame.extent
-  if (marker.lon < minx || marker.lon > maxx || marker.lat < miny || marker.lat > maxy) {
-    throw new Error('marker is outside the map; widen bbox')
-  }
-  return { ...planned, marker, caption: marker.label ? `${planned.caption} · ${marker.label}` : planned.caption }
+  const outside = markers.findIndex(({ lon, lat }) => lon < minx || lon > maxx || lat < miny || lat > maxy)
+  if (outside >= 0) throw new Error(`marker ${outside + 1} is outside the map; widen bbox`)
+  const labels = markers.flatMap(({ label }) => (label ? [label] : []))
+  return { ...planned, markers, caption: [planned.caption, ...labels].join(' · ') }
 }
 
 const planFor = async (input: TInput, bbox: TBbox | null, get: TText): Promise<TPlan> => {

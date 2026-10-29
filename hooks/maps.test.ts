@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { markerPixel, parseBbox, parseMarker, plan, sizeFor, type TInput, type TPlan } from './maps'
+import { markerPixel, parseBbox, parseMarkers, plan, sizeFor, type TInput, type TPlan } from './maps'
 
 const never = async (url: string): Promise<string> => {
   throw new Error(`unexpected fetch: ${url}`)
@@ -158,14 +158,31 @@ test('sizeFor keeps the aspect at the height cap and ignores a non-numeric width
   expect(sizeFor(2, 10)).toEqual({ width: 64, height: 64 })
 })
 
-test('parseMarker takes lon,lat and an optional one-line label', () => {
-  expect(parseMarker('-73.98566,40.74844')).toEqual({ lon: -73.98566, lat: 40.74844 })
-  expect(parseMarker('2.29,48.86,Eiffel Tower, Paris')).toEqual({ lon: 2.29, lat: 48.86, label: 'Eiffel Tower, Paris' })
-  expect(parseMarker('1,2,two\nlines')).toEqual({ lon: 1, lat: 2, label: 'two lines' })
-  expect(parseMarker(undefined)).toBeNull()
-  expect(parseMarker('200,10')).toBeNull()
-  expect(parseMarker('10')).toBeNull()
-  expect(parseMarker('a,b')).toBeNull()
+test('parseMarkers takes one or more lon,lat with optional one-line labels', () => {
+  expect(parseMarkers('-73.98566,40.74844')).toEqual([{ lon: -73.98566, lat: 40.74844 }])
+  expect(parseMarkers('2.29,48.86,Eiffel Tower, Paris')).toEqual([{ lon: 2.29, lat: 48.86, label: 'Eiffel Tower, Paris' }])
+  expect(parseMarkers('1,2,two\nlines')).toEqual([{ lon: 1, lat: 2, label: 'two lines' }])
+  expect(parseMarkers('2.29,48.86,Eiffel Tower; 2.34,48.86 ;2.35,48.85,Notre-Dame;')).toEqual([
+    { lon: 2.29, lat: 48.86, label: 'Eiffel Tower' },
+    { lon: 2.34, lat: 48.86 },
+    { lon: 2.35, lat: 48.85, label: 'Notre-Dame' },
+  ])
+  expect(parseMarkers(undefined)).toBeNull()
+  expect(parseMarkers(';')).toBeNull()
+  expect(parseMarkers('200,10')).toBeNull()
+  expect(parseMarkers('10')).toBeNull()
+  expect(parseMarkers('a,b')).toBeNull()
+  expect(parseMarkers('1,2;a,b')).toBeNull()
+})
+
+test('several markers: each lands on its pixel, labels join the caption', async () => {
+  const paris = await plan({ url: 'https://tile.test/{z}/{x}/{y}.png', bbox: '2.22,48.81,2.47,48.91', marker: '2.2945,48.8584,Eiffel Tower;2.3376,48.8606' }, never)
+  if (paris.kind !== 'tiles' || !paris.frame) throw new Error('expected tiles with a frame')
+  expect(paris.markers).toHaveLength(2)
+  expect(paris.caption).toBe('zoom 12 · 4×2 tiles · Eiffel Tower')
+  const size = { width: paris.columns * 256, height: paris.rows * 256 }
+  const [eiffel, louvre] = paris.markers!.map(({ lon, lat }) => markerPixel(paris.frame!, size, lon, lat))
+  expect(louvre.x).toBeGreaterThan(eiffel.x)
 })
 
 test('ArcGIS marker lands on its Web Mercator pixel', async () => {
@@ -204,7 +221,9 @@ test('WMS marker is linear in degrees; tiles marker is Web Mercator over whole t
 test('a marker is refused when it cannot be placed', async () => {
   const cases: [TInput, (url: string) => Promise<string>, RegExp][] = [
     [{ url: 'https://tile.test/{z}/{x}/{y}.png', marker: 'nope' }, never, /^marker must be/],
-    [{ url: 'https://tile.test/{z}/{x}/{y}.png', bbox: '0,0,10,10', marker: '20,20' }, never, /outside the map/],
+    [{ url: 'https://tile.test/{z}/{x}/{y}.png', bbox: '0,0,10,10', marker: '20,20' }, never, /^marker 1 is outside the map/],
+    [{ url: 'https://tile.test/{z}/{x}/{y}.png', bbox: '0,0,10,10', marker: '5,5,in;20,20,out' }, never, /^marker 2 is outside the map/],
+    [{ url: 'https://tile.test/{z}/{x}/{y}.png', marker: Array(21).fill('0,0').join(';') }, never, /^at most 20 markers/],
     [{ url: 'https://x.test/api/collections/a/map', marker: '1,1' }, never, /pass bbox/],
   ]
   for (const [input, get, pattern] of cases) {
