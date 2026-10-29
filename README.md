@@ -129,6 +129,28 @@ The plugin tests the patterns in the order of the table.
 
 <p>To install the plugin for one project only, do the two commands from the project folder. Add <code>--scope project</code> to each command. Claude Code writes the settings to <code>.claude/settings.json</code>.</p>
 
+<h2>Terminals</h2>
+
+<table>
+  <thead>
+    <tr><th>Terminal</th><th>Result</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Ghostty</td><td>Map image</td></tr>
+    <tr><td>kitty</td><td>Map image</td></tr>
+    <tr><td>tmux with passthrough</td><td>Map image</td></tr>
+    <tr><td>tmux without passthrough</td><td>Caption and file path</td></tr>
+    <tr><td>Other terminals</td><td>Caption and file path</td></tr>
+  </tbody>
+</table>
+
+<p>The plugin draws the map image with the kitty graphics protocol. If the terminal does not support it, you get the caption and the file path.</p>
+
+<p>For tmux, add these lines to <code>~/.tmux.conf</code>. Then restart tmux:</p>
+
+<pre><code>set -g allow-passthrough on
+set -g focus-events on</code></pre>
+
 <h2>Update</h2>
 
 <ol>
