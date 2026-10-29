@@ -126,8 +126,10 @@ const curl = async ($: EngineInterface, url: string, out: string, accept?: strin
   const [status = '', ...rest] = ran.stdout.trim().split(' ')
   const type = rest.join(' ')
   const ok = status.startsWith('2')
-  const { base64 } = await $.fs.read(out, { as: 'bytes' })
-  if (ok && pngSize(base64)) return base64
+  if (ok) {
+    const { base64 } = await $.fs.read(out, { as: 'bytes' })
+    if (pngSize(base64)) return base64
+  }
 
   // Servers send error pages as PNG tiles too, so the status decides; only text bodies are worth quoting.
   const text = /text|xml|json/i.test(type) ? await $.fs.read(out) : ''
