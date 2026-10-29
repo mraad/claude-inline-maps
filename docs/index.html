@@ -113,12 +113,12 @@
     <p>The plugin tests the patterns in the order of the table. If no pattern matches, the plugin tries WMS first. If WMS fails, it tries OGC API - Maps.</p>
     <div class="figs">
       <figure>
-        <img src="images/arcgis-usa.png" width="400" height="189" alt="ArcGIS sample map service: US states, highways and cities on a white background">
-        <figcaption>ArcGIS MapServer <code>export</code>. No bounding box, so the plugin uses the full extent of the map service. 400 × 189 px.</figcaption>
+        <img src="images/arcgis-usa.png" width="560" height="425" alt="ArcGIS sample map service: US states, highways and cities on a white background">
+        <figcaption>ArcGIS MapServer <code>export</code>. No bounding box, so the plugin uses the full extent of the map service. The extent is in degrees, so the plugin requests <code>imageSR=3857</code>. 560 × 425 px.</figcaption>
       </figure>
       <figure>
-        <img src="images/wms-europe.png" width="400" height="250" alt="OpenStreetMap WMS rendering of Europe with country labels and roads">
-        <figcaption>OGC WMS 1.3.0 <code>GetMap</code>, layer <code>OSM-WMS</code>, <code>bbox=-10,35,30,60</code>. 400 × 250 px.</figcaption>
+        <img src="images/wms-europe.png" width="560" height="518" alt="OpenStreetMap WMS rendering of Europe with country labels and roads">
+        <figcaption>OGC WMS 1.3.0 <code>GetMap</code>, layer <code>OSM-WMS</code>, <code>bbox=-10,35,30,60</code>. 560 × 518 px.</figcaption>
       </figure>
       <figure>
         <img src="images/xyz-osm.png" width="1024" height="512" alt="OpenStreetMap tiles of North America stitched into one image">

@@ -1,2 +1,5 @@
 .DS_Store
 .claude-plugin/types/
+# local only: absolute paths / session notes
+.claude/
+tasks/
