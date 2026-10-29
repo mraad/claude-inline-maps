@@ -26,6 +26,8 @@ It shows the map image in the terminal, in the Claude Code transcript.
   <dd>A server that makes map images: ArcGIS REST, OGC WMS, OGC API - Maps, or an XYZ tile server.</dd>
   <dt>Tile</dt>
   <dd>One 256 × 256 px PNG in a Web Mercator grid, addressed by zoom <code>z</code>, column <code>x</code> and row <code>y</code>.</dd>
+  <dt>Marker</dt>
+  <dd>A red pin that the plugin draws on the map image at one point, given as <code>marker=lon,lat[,label]</code>.</dd>
   <dt>Bounding box</dt>
   <dd><code>bbox=minx,miny,maxx,maxy</code>, in degrees, EPSG:4326.</dd>
   <dt>Terminal</dt>
@@ -78,6 +80,7 @@ The plugin tests the patterns in the order of the table.
   <li><b>Download.</b> <code>curl</code> gets each URL into one temporary directory per Claude Code process. The plugin uses <code>curl</code> because <code>$.http.fetch</code> returns text only.</li>
   <li><b>Check.</b> The plugin accepts a body only if the HTTP status is 2xx and the bytes are a PNG.</li>
   <li><b>Stitch.</b> For tiles, <code>magick montage</code> joins the tiles into one PNG. The plugin then deletes the tile files.</li>
+  <li><b>Pin.</b> If you give a marker, <code>markerPixel()</code> converts the point to a pixel of the map image. <code>magick -draw</code> draws the pin. The label goes in the caption.</li>
   <li><b>Cache.</b> The plugin keeps the last 12 map images in memory as base64. It keeps the bytes only if the map image is 2 MiB or less.</li>
   <li><b>Draw.</b> A <code>ui.render</code> hook replaces the transcript row with an image, a caption and a file link. If the cache has no bytes, the terminal reads the file from its path.</li>
 </ol>
@@ -159,6 +162,22 @@ The plugin tests the patterns in the order of the table.
   <li>Look at the tool result row. It shows the map image.</li>
 </ol>
 
+<h3>With a marker</h3>
+
+<ol>
+  <li>Add the marker option to the command:
+    <pre><code>/map https://tile.openstreetmap.org/{z}/{x}/{y}.png bbox=2.22,48.81,2.47,48.91 marker=2.2945,48.8584,Eiffel Tower</code></pre>
+  </li>
+  <li>Push Enter.</li>
+  <li>Look at the map image. The pin tip is on the point. The caption ends with the label.</li>
+</ol>
+
+<p>You can also ask Claude: <code>show a map of Paris and place a marker on the Eiffel Tower</code>.</p>
+
+<p>
+<img src="docs/images/xyz-marker.png" width="480" alt="OpenStreetMap map of Paris with a red pin on the Eiffel Tower">
+</p>
+
 <h3>Options</h3>
 
 <table>
@@ -201,7 +220,7 @@ claude plugin test .       # run hooks/*.test.ts(x)
 claude --plugin-dir .      # start a session with this folder loaded</code></pre>
 
 <ul>
-  <li><code>hooks/maps.test.ts</code> tests <code>plan()</code> for each map service type, with fixed responses.</li>
+  <li><code>hooks/maps.test.ts</code> tests <code>plan()</code> for each map service type, with fixed responses. It also tests marker parsing, the marker pixel for each projection, and the marker errors.</li>
   <li><code>hooks/register.test.tsx</code> renders the <code>/map</code> output row and looks for the image element.</li>
   <li>The test environment has no network and no file system. The tests do not cover <code>curl</code>, <code>magick</code> or the terminal output.</li>
 </ul>
@@ -209,6 +228,21 @@ claude --plugin-dir .      # start a session with this folder loaded</code></pre
 <p>The plugin API is early access. A Claude Code release can change it. The plugin was tested with Claude Code 2.1.312.</p>
 
 <p><a href="docs/index.html"><code>docs/index.html</code></a> has the same content as a styled page, with a data-flow diagram.</p>
+
+<h2>Contribute</h2>
+
+<p>Only the author can push to <code>main</code> or merge into it. A ruleset on <code>main</code> enforces this.</p>
+
+<ol>
+  <li>Fork the repository.</li>
+  <li>Make a branch in your fork.</li>
+  <li>Make your change.</li>
+  <li>Run <code>claude plugin validate .</code>.</li>
+  <li>Run <code>claude plugin test .</code>.</li>
+  <li>Open a pull request to <code>main</code>.</li>
+</ol>
+
+<p>The author reviews the pull request and merges it.</p>
 
 <h2>License</h2>
 
