@@ -169,6 +169,7 @@ The plugin tests the patterns in the order of the table.
     <tr><td><code>bbox</code></td><td><code>minx,miny,maxx,maxy</code> in degrees</td><td>The extent of the map service. For tiles, the world.</td></tr>
     <tr><td><code>layers</code></td><td>WMS layer names, or ArcGIS layer ids (sent as <code>show:&lt;ids&gt;</code>)</td><td>The first named WMS layer. All ArcGIS layers.</td></tr>
     <tr><td><code>width</code></td><td>Pixels, 64 to 2000</td><td>800. Tiles ignore this option.</td></tr>
+    <tr><td><code>marker</code></td><td><code>lon,lat</code> or <code>lon,lat,label</code> in degrees. The plugin draws a red pin at the point. The label goes in the caption.</td><td>No pin.</td></tr>
   </tbody>
 </table>
 
@@ -184,6 +185,7 @@ The plugin tests the patterns in the order of the table.
   <li>The plugin draws in the terminal only. The desktop app, VS Code and mobile show text.</li>
   <li>The plugin saves each map image as <code>map-N.png</code>. Nothing deletes the temporary directories. They collect in <code>$TMPDIR</code> across sessions.</li>
   <li>A tile server can send an error tile with HTTP status 200. The plugin cannot detect this.</li>
+  <li>The plugin draws a marker only inside the map image. For OGC API - Maps, and for an ArcGIS map service with a projected extent other than Web Mercator, give a bounding box with the marker.</li>
 </ul>
 
 <blockquote>

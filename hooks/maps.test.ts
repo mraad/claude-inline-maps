@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { parseBbox, plan, type TPlan } from './maps'
+import { markerPixel, parseBbox, parseMarker, plan, type TInput, type TPlan } from './maps'
 
 const never = async (url: string): Promise<string> => {
   throw new Error(`unexpected fetch: ${url}`)
@@ -149,6 +149,66 @@ test('XYZ template picks a zoom that stays within a 4x4 grid', async () => {
   if (city.kind !== 'tiles') throw new Error('expected tiles')
   expect(city.columns * city.rows).toBeLessThanOrEqual(16)
   expect(city.caption).toMatch(/^zoom 1[0-9] /)
+})
+
+test('parseMarker takes lon,lat and an optional one-line label', () => {
+  expect(parseMarker('-73.98566,40.74844')).toEqual({ lon: -73.98566, lat: 40.74844 })
+  expect(parseMarker('2.29,48.86,Eiffel Tower, Paris')).toEqual({ lon: 2.29, lat: 48.86, label: 'Eiffel Tower, Paris' })
+  expect(parseMarker('1,2,two\nlines')).toEqual({ lon: 1, lat: 2, label: 'two lines' })
+  expect(parseMarker(undefined)).toBeNull()
+  expect(parseMarker('200,10')).toBeNull()
+  expect(parseMarker('10')).toBeNull()
+  expect(parseMarker('a,b')).toBeNull()
+})
+
+test('ArcGIS marker lands on its Web Mercator pixel', async () => {
+  const info = JSON.stringify({ mapName: 'Layers' })
+  const result = image(
+    await plan(
+      { url: 'https://x.test/rest/services/Gray/MapServer', bbox: '-73.9989,40.7424,-73.9725,40.7544', width: 900, marker: '-73.98566,40.74844,Empire State Building' },
+      serving({ 'https://x.test/rest/services/Gray/MapServer?f=json': info }),
+    ),
+  )
+  expect(result.url).toContain('size=900%2C540')
+  expect(result.caption).toBe('Layers · EPSG:3857 · Empire State Building')
+  if (!result.frame) throw new Error('expected a frame')
+  // Checked by hand on the drawn map: 5th Ave at W 34th St.
+  const { x, y } = markerPixel(result.frame, { width: 900, height: 540 }, -73.98566, 40.74844)
+  expect([Math.round(x), Math.round(y)]).toEqual([451, 268])
+})
+
+test('WMS marker is linear in degrees; tiles marker is Web Mercator over whole tiles', async () => {
+  const wmsPlan = image(
+    await plan(
+      { url: 'https://x.test/geoserver/wms', bbox: '-80,30,-70,40', marker: '-75,35' },
+      serving({ 'https://x.test/geoserver/wms?service=WMS': WMS_111 }),
+    ),
+  )
+  if (!wmsPlan.frame) throw new Error('expected a frame')
+  expect(markerPixel(wmsPlan.frame, { width: 800, height: 600 }, -75, 35)).toEqual({ x: 400, y: 300 })
+
+  const world = await plan({ url: 'https://tile.test/{z}/{x}/{y}.png', marker: '0,0' }, never)
+  if (world.kind !== 'tiles' || !world.frame) throw new Error('expected tiles with a frame')
+  const size = { width: world.columns * 256, height: world.rows * 256 }
+  const { x, y } = markerPixel(world.frame, size, 0, 0)
+  expect([Math.round(x), Math.round(y)]).toEqual([size.width / 2, size.height / 2])
+})
+
+test('a marker is refused when it cannot be placed', async () => {
+  const cases: [TInput, (url: string) => Promise<string>, RegExp][] = [
+    [{ url: 'https://tile.test/{z}/{x}/{y}.png', marker: 'nope' }, never, /^marker must be/],
+    [{ url: 'https://tile.test/{z}/{x}/{y}.png', bbox: '0,0,10,10', marker: '20,20' }, never, /outside the map/],
+    [{ url: 'https://x.test/api/collections/a/map', marker: '1,1' }, never, /pass bbox/],
+  ]
+  for (const [input, get, pattern] of cases) {
+    let message = ''
+    try {
+      await plan(input, get)
+    } catch (error) {
+      message = (error as Error).message
+    }
+    expect(message).toMatch(pattern)
+  }
 })
 
 test('bad input is refused before any request', async () => {

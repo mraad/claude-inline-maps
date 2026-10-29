@@ -1,6 +1,6 @@
 {
   "name": "inline-maps",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Draws a map inline in the Claude Code terminal from an ArcGIS MapServer, OGC WMS, OGC API - Maps or XYZ/WMTS tile URL",
   "author": { "name": "mraad" },
   "license": "MIT",
