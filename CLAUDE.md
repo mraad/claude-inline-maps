@@ -16,6 +16,15 @@ claude --plugin-dir .      # live try-out in a Ghostty/kitty session
 
 `claude plugin test` runs every `*.test.ts(x)` and has no name filter (`claude plugin test --help`). Tests import from `claude-code/testing`.
 
+## Release
+
+Public repo `mraad/claude-inline-maps`; it is its own marketplace (`.claude-plugin/marketplace.json`, `"source": "./"`). Ruleset `protect-main` lets only the admin update `main`: work on a branch, open a PR, merge with `gh pr merge <n> --rebase --admin --delete-branch` (the author runs it; a plain merge is BLOCKED). Release steps:
+
+1. Bump `version` in `.claude-plugin/plugin.json` and the eyebrow in `docs/index.html`.
+2. After the merge: `claude plugin tag . -m "inline-maps v%s" --push` (tag `inline-maps--v<version>`, checks plugin.json against the marketplace entry).
+3. `gh release create inline-maps--v<version> --verify-tag --title "inline-maps v<version>" --notes-file <notes>`.
+4. Local install (project scope, from GitHub): `claude plugin marketplace update claude-inline-maps`, then `claude plugin update inline-maps@claude-inline-maps --scope project`, then restart. Local edits do not reach it; use `claude --plugin-dir .` to try them.
+
 ## Architecture
 
 - `hooks/maps.ts`: pure, no host APIs. `plan(input, get)` detects the service type from the URL and returns a `TPlan`: one image URL (ArcGIS `export`/`exportImage`, WMS `GetMap`, OGC API `/map`) or a list of XYZ tile URLs. `get` is injected (text fetch) so tests feed fixtures. Detection order: `{z}`/`{TileMatrix}` template, MapServer/ImageServer, `/collections` or `/map`, `service=wms`|`/wms`, else probe WMS then OGC API.
