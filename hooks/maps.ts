@@ -1,11 +1,15 @@
 type TBbox = [number, number, number, number] // minx, miny, maxx, maxy in EPSG:4326
-export type TInput = { url: string; bbox?: string; layers?: string; width?: number }
+export type TInput = { url: string; bbox?: string; layers?: string; width?: number; marker?: string }
 type TText = (url: string) => Promise<string>
+export type TMarker = { lon: number; lat: number; label?: string }
+// Where the downloaded picture sits: its degree extent, and whether rows are linear in latitude or in Web Mercator.
+export type TFrame = { projection: 'degrees' | 'mercator'; extent: TBbox }
 
 // What to download: one image URL, or XYZ tiles to stitch into a grid.
+type TPlanBase = { source: string; caption: string; frame?: TFrame; marker?: TMarker }
 export type TPlan =
-  | { kind: 'image'; source: string; url: string; accept?: string; caption: string }
-  | { kind: 'tiles'; source: string; urls: string[]; columns: number; rows: number; caption: string }
+  | (TPlanBase & { kind: 'image'; url: string; accept?: string })
+  | (TPlanBase & { kind: 'tiles'; urls: string[]; columns: number; rows: number })
 
 const DEFAULT_WIDTH = 800
 const MAX_WIDTH = 2000
@@ -29,6 +33,20 @@ export const parseBbox = (text?: string): TBbox | null => {
   return isValid ? [minx, miny, maxx, maxy] : null
 }
 
+// "lon,lat" or "lon,lat,label"; the label keeps any further commas.
+export const parseMarker = (text?: string): TMarker | null => {
+  if (!text) return null
+  const [lonText = '', latText = '', ...rest] = text.split(',')
+  const lon = Number(lonText.trim())
+  const lat = Number(latText.trim())
+  if (!lonText.trim() || !latText.trim() || !Number.isFinite(lon) || !Number.isFinite(lat) || Math.abs(lon) > 180 || Math.abs(lat) > 90) {
+    return null
+  }
+  // One line, short: the label goes in the caption, and /map's row text is parsed back line by line.
+  const label = rest.join(',').replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, 80)
+  return label ? { lon, lat, label } : { lon, lat }
+}
+
 const sizeFor = (aspect: number, requested = DEFAULT_WIDTH) => {
   const width = Math.min(MAX_WIDTH, Math.max(64, Math.round(requested)))
   const height = Math.min(MAX_WIDTH, Math.max(64, Math.round(width / aspect)))
@@ -45,6 +63,21 @@ const groundAspect = ([minx, miny, maxx, maxy]: TBbox) =>
 // Width/height of a degree box in Web Mercator (what ArcGIS draws with imageSR=3857).
 const mercatorY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (Math.max(-85.0511, Math.min(85.0511, lat)) * RAD) / 2))
 const mercatorAspect = ([minx, miny, maxx, maxy]: TBbox) => ((maxx - minx) * RAD) / (mercatorY(maxy) - mercatorY(miny))
+
+// Pixel of a lon/lat in a picture of `size` drawn over `frame`.
+export const markerPixel = ({ projection, extent: [minx, miny, maxx, maxy] }: TFrame, size: { width: number; height: number }, lon: number, lat: number) => {
+  const row = projection === 'mercator' ? mercatorY : (value: number) => value
+  return {
+    x: ((lon - minx) / (maxx - minx)) * size.width,
+    y: ((row(maxy) - row(lat)) / (row(maxy) - row(miny))) * size.height,
+  }
+}
+
+// Web Mercator metres (EPSG:3857 and its older aliases) to degrees.
+const WEB_MERCATOR = [3857, 102100, 102113, 900913]
+const EARTH_RADIUS = 6378137
+const lonOfMetres = (x: number) => x / EARTH_RADIUS / RAD
+const latOfMetres = (y: number) => Math.atan(Math.sinh(y / EARTH_RADIUS)) / RAD
 
 const num = (value: string, name: string): number => {
   const parsed = Number(value)
@@ -116,11 +149,18 @@ const arcgis = async (input: TInput, bbox: TBbox | null, get: TText): Promise<TP
   if (input.layers && !isImage) params.layers = `show:${input.layers}`
 
   const name = typeof info.mapName === 'string' ? info.mapName : typeof info.name === 'string' ? info.name : base.split('/').slice(-2, -1)[0]
+  // Other projected extents have no frame: a marker on them needs a bbox.
+  const frame: TFrame | undefined = isDegrees
+    ? { projection: 'mercator', extent: box }
+    : WEB_MERCATOR.includes(extent.sr)
+      ? { projection: 'mercator', extent: [lonOfMetres(box[0]), latOfMetres(box[1]), lonOfMetres(box[2]), latOfMetres(box[3])] }
+      : undefined
   return {
     kind: 'image',
     source: isImage ? 'ArcGIS ImageServer' : 'ArcGIS MapServer',
     url: `${base}/${isImage ? 'exportImage' : 'export'}?${query(params)}`,
     caption: `${name} · EPSG:${imageSR}`,
+    frame,
   }
 }
 
@@ -175,6 +215,7 @@ const wms = async (input: TInput, bbox: TBbox | null, get: TText): Promise<TPlan
       bbox: box.join(','),
     }).replace(/%2C/g, ','),
     caption: `${layer} · WMS ${version}`,
+    frame: { projection: 'degrees', extent: area },
   }
 }
 
@@ -203,6 +244,8 @@ const ogcApi = async (input: TInput, bbox: TBbox | null, get: TText): Promise<TP
     url: `${map}?${query(params).replace(/%2C/g, ',')}`,
     accept: 'image/png',
     caption: map.replace(/^https?:\/\//, ''),
+    // Without a bbox the server picks the extent, so the picture has no known frame.
+    frame: bbox ? { projection: 'degrees', extent: bbox } : undefined,
   }
 }
 
@@ -246,7 +289,18 @@ const tiles = (input: TInput, bbox: TBbox | null): TPlan => {
       )
     }
   }
-  return { kind: 'tiles', source: 'XYZ tiles', urls, columns, rows, caption: `zoom ${z} · ${columns}×${rows} tiles` }
+  // The stitched picture covers whole tiles: from tile corner (x0, y0) to (x0 + columns, y0 + rows).
+  const tileLon = (x: number) => (x / 2 ** z) * 360 - 180
+  const tileLat = (y: number) => Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / 2 ** z))) / RAD
+  return {
+    kind: 'tiles',
+    source: 'XYZ tiles',
+    urls,
+    columns,
+    rows,
+    caption: `zoom ${z} · ${columns}×${rows} tiles`,
+    frame: { projection: 'mercator', extent: [tileLon(x0), tileLat(y0 + rows), tileLon(x0 + columns), tileLat(y0)] },
+  }
 }
 
 const isTemplate = (url: string) => /\{(?:z|TileMatrix)\}/.test(decodeURIComponent(url))
@@ -256,7 +310,20 @@ export const plan = async (input: TInput, get: TText): Promise<TPlan> => {
 
   const bbox = parseBbox(input.bbox)
   if (input.bbox && !bbox) throw new Error('bbox must be minx,miny,maxx,maxy in degrees (EPSG:4326)')
+  const marker = parseMarker(input.marker)
+  if (input.marker && !marker) throw new Error('marker must be lon,lat[,label] in degrees (EPSG:4326)')
 
+  const planned = await planFor(input, bbox, get)
+  if (!marker) return planned
+  if (!planned.frame) throw new Error('this map service picks its own extent; pass bbox to place a marker')
+  const [minx, miny, maxx, maxy] = planned.frame.extent
+  if (marker.lon < minx || marker.lon > maxx || marker.lat < miny || marker.lat > maxy) {
+    throw new Error('marker is outside the map; widen bbox')
+  }
+  return { ...planned, marker, caption: marker.label ? `${planned.caption} · ${marker.label}` : planned.caption }
+}
+
+const planFor = async (input: TInput, bbox: TBbox | null, get: TText): Promise<TPlan> => {
   if (isTemplate(input.url)) return tiles(input, bbox)
   if (/\/(?:MapServer|ImageServer)\b/i.test(input.url)) return arcgis(input, bbox, get)
   if (/\/collections\b|\/map\/?(?:\?|$)/i.test(input.url)) return ogcApi(input, bbox, get)

@@ -1,6 +1,6 @@
 import type { EngineInterface, Register, RenderInput } from 'claude-code'
 
-import { plan, type TInput, type TPlan } from './maps'
+import { markerPixel, plan, type TInput, type TPlan } from './maps'
 
 type TSize = { width: number; height: number }
 type TShown = TSize & { path: string; caption: string; source: string }
@@ -80,11 +80,18 @@ const parseArgs = (args: string): TInput | null => {
   if (!url) return null
 
   const input: TInput = { url }
+  let last = ''
   for (const word of rest) {
-    const [key, ...value] = word.split('=')
+    // A marker label may hold spaces: words without "=" after marker= continue it.
+    if (last === 'marker' && !word.includes('=')) {
+      input.marker += ` ${word}`
+      continue
+    }
+    const [key = '', ...value] = word.split('=')
     const text = value.join('=')
-    if (key === 'bbox' || key === 'layers') input[key] = text
+    if (key === 'bbox' || key === 'layers' || key === 'marker') input[key] = text
     else if (key === 'width') input.width = Number(text)
+    last = key
   }
   return input
 }
@@ -154,6 +161,26 @@ const download = async ($: EngineInterface, request: TPlan): Promise<TShown> => 
     base64 = (await $.fs.read(out, { as: 'bytes' })).base64
   }
 
+  const { marker, frame } = request
+  const drawn = pngSize(base64)
+  if (marker && frame && drawn) {
+    const { x, y } = markerPixel(frame, drawn, marker.lon, marker.lat)
+    const [px, py] = [Math.round(x), Math.round(y)]
+    // A pin with its tip on the point; numbers only, no text, so no font is needed. The label goes in the caption.
+    const pinned = await $.process.run([
+      'magick', out,
+      '-fill', '#d7263d', '-stroke', 'white', '-strokewidth', '2',
+      '-draw', `path 'M ${px},${py} L ${px - 11},${py - 24} A 12,12 0 1,1 ${px + 11},${py - 24} Z'`,
+      '-fill', 'white', '-stroke', 'none',
+      '-draw', `circle ${px},${py - 29} ${px + 4},${py - 29}`,
+      out,
+    ])
+    if (pinned.exitCode !== 0) {
+      throw new Error(`drawing the marker needs ImageMagick (magick): ${pinned.stderr.trim() || 'not found'}`)
+    }
+    base64 = (await $.fs.read(out, { as: 'bytes' })).base64
+  }
+
   remember(out, base64)
   const size = pngSize(base64) ?? FALLBACK_SIZE
   return { ...size, path: out, caption: request.caption, source: request.source }
@@ -181,6 +208,7 @@ export const register: Register = on => {
           bbox: { type: 'string', description: 'Optional minx,miny,maxx,maxy in degrees (EPSG:4326)' },
           layers: { type: 'string', description: 'Optional layer name(s): WMS layers, or ArcGIS layer ids' },
           width: { type: 'number', description: 'Optional image width in pixels (default 800)' },
+          marker: { type: 'string', description: 'Optional pin: lon,lat or lon,lat,label in degrees (EPSG:4326); the label is shown in the caption' },
         },
         required: ['url'],
       },
@@ -189,7 +217,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'map',
       description: 'Draw a map service inline',
-      argumentHint: '<url> [bbox=minx,miny,maxx,maxy] [layers=a,b] [width=800]',
+      argumentHint: '<url> [bbox=minx,miny,maxx,maxy] [layers=a,b] [width=800] [marker=lon,lat,label]',
     })
 
     return next(e)
@@ -207,7 +235,7 @@ export const register: Register = on => {
 
   on('command.run', { command: 'map' }, async ($, e) => {
     const input = parseArgs(e.args)
-    if (!input) return { text: 'Usage: /map <url> [bbox=minx,miny,maxx,maxy] [layers=a,b] [width=800]' }
+    if (!input) return { text: 'Usage: /map <url> [bbox=minx,miny,maxx,maxy] [layers=a,b] [width=800] [marker=lon,lat,label]' }
 
     try {
       const shown = await show($, input)

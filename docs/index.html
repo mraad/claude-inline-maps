@@ -75,7 +75,7 @@
 
 <main>
   <header style="display:flex;flex-direction:column;gap:12px">
-    <span class="eyebrow">Claude Code plugin · v0.1.1</span>
+    <span class="eyebrow">Claude Code plugin · v0.1.2</span>
     <h1>inline-maps</h1>
     <p class="lead">This plugin gets a map image from a map service URL. It shows the map image in the terminal, in the Claude Code transcript.</p>
   </header>
@@ -254,6 +254,7 @@
       <li><code>bbox</code>: the area to show, in degrees. If you do not give it, the plugin uses the extent of the map service, or the world for tiles.</li>
       <li><code>layers</code>: WMS layer names, or ArcGIS layer ids. ArcGIS gets <code>show:&lt;ids&gt;</code>.</li>
       <li><code>width</code>: the width of the map image in pixels, from 64 to 2000. The default is 800. Tiles ignore it.</li>
+      <li><code>marker</code>: <code>lon,lat</code> or <code>lon,lat,label</code>, in degrees. The plugin draws a red pin at the point. The label goes in the caption. The point must be inside the map image. For OGC API - Maps, give a bounding box too.</li>
     </ul>
   </section>
 
