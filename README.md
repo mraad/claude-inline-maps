@@ -9,7 +9,7 @@ Works with:
 | ArcGIS MapServer / ImageServer | `https://sampleserver6.arcgisonline.com/arcgis/rest/services/USA/MapServer` |
 | OGC WMS 1.1.1 / 1.3.0 | `https://ows.terrestris.de/osm/service` |
 | OGC API - Maps | `https://example.org/api/collections/roads` (or `.../map`) |
-| XYZ / WMTS RESTful tiles | `https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png` |
+| XYZ / WMTS RESTful tiles | `https://tile.opentopomap.org/{z}/{x}/{y}.png` |
 
 ## Use
 
@@ -42,9 +42,9 @@ Same as [claude-inline-images](https://github.com/kbrianps/claude-inline-images)
 - Maps over 2 MiB are drawn from the file path, which needs the terminal to read the file itself (local Ghostty/kitty, not SSH or tmux). Downloads are capped at 4 MiB and 20 s.
 - Only PNG is drawn.
 - Maps are saved as `map-N.png` in a temp directory (`mktemp -d`) that is not cleaned up during the session; stitched tile files are deleted right after stitching.
-- Errors (HTTP status, `ServiceException`, ArcGIS `error.message`, a non-PNG reply) come back as the tool result text, with no picture.
+- Errors (a non-2xx HTTP status, even with a PNG body; `ServiceException`; ArcGIS `error.message`; a non-PNG reply, quoted only when it is text) come back as the tool result text, with no picture.
 - Desktop app, VS Code extension and mobile are left untouched.
-- The `/map` command prints the caption and path as text. Whether Claude Code draws a plugin command's tool result is untested; use the tool (ask Claude) for the picture.
+- The `/map` command draws the picture in its output row; in other places its text (caption, size, path) shows instead.
 
 ## Development
 

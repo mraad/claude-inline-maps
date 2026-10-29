@@ -1,4 +1,4 @@
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, RenderInput } from 'claude-code'
 
 import { plan, type TInput, type TPlan } from './maps'
 
@@ -14,6 +14,8 @@ const MAX_DOWNLOAD_BYTES = 4 * 1024 * 1024
 const MAX_INLINE_BYTES = 2 * 1024 * 1024
 const CACHE_LIMIT = 12
 const CURL_SECONDS = 20
+// OpenStreetMap's tile policy blocks generic clients (curl's default) with an error tile sent as HTTP 200.
+const USER_AGENT = 'inline-maps (+https://github.com/mraad/claude-inline-maps)'
 const FALLBACK_SIZE: TSize = { width: 1600, height: 1000 }
 
 const pictures = new Map<string, string | null>()
@@ -104,20 +106,26 @@ const curl = async ($: EngineInterface, url: string, out: string, accept?: strin
       '--max-filesize', String(MAX_DOWNLOAD_BYTES),
       '--proto', '=http,https',
       '--proto-redir', '=http,https',
+      '-A', USER_AGENT,
       ...(accept ? ['-H', `Accept: ${accept}`] : []),
       '-o', out,
-      '-w', '%{http_code}',
+      '-w', '%{http_code} %{content_type}',
       url,
     ],
     { timeoutMs: (CURL_SECONDS + 5) * 1000 },
   )
   if (ran.exitCode !== 0) throw new Error(`curl failed (${ran.exitCode}): ${ran.stderr.trim() || url}`)
 
+  const [status = '', ...rest] = ran.stdout.trim().split(' ')
+  const type = rest.join(' ')
+  const ok = status.startsWith('2')
   const { base64 } = await $.fs.read(out, { as: 'bytes' })
-  if (pngSize(base64)) return base64
-  const text = await $.fs.read(out)
+  if (ok && pngSize(base64)) return base64
+
+  // Servers send error pages as PNG tiles too, so the status decides; only text bodies are worth quoting.
+  const text = /text|xml|json/i.test(type) ? await $.fs.read(out) : ''
   const message = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300)
-  throw new Error(`HTTP ${ran.stdout.trim()}, not a PNG: ${message || url}`)
+  throw new Error(`HTTP ${status}${ok ? ', not a PNG' : ''} (${type || 'no content type'}): ${message || url}`)
 }
 
 // Fetches the plan's image(s) into a temp directory; tiles are stitched into one PNG.
@@ -190,11 +198,12 @@ export const register: Register = on => {
   on('tool.call', { tool: TOOL }, async ($, e) => {
     try {
       const shown = await show($, e as unknown as TInput)
-      return { result: shown }
+      // A registered tool's result must be a string (or content blocks); ui.render parses it back.
+      return { result: JSON.stringify(shown) }
     } catch (error) {
-      return { result: { error: (error as Error).message }, isError: true }
+      return { deny: `map failed: ${(error as Error).message}` }
     }
-  }).catch(() => ({ result: { error: 'map tool failed' }, isError: true }))
+  }).catch(() => ({ deny: 'map tool failed' }))
 
   on('command.run', { command: 'map' }, async ($, e) => {
     const input = parseArgs(e.args)
@@ -202,7 +211,7 @@ export const register: Register = on => {
 
     try {
       const shown = await show($, input)
-      return { text: `${shown.source}: ${shown.caption}\n${shown.path}` }
+      return { text: `${shown.source}: ${shown.caption} · ${shown.width}×${shown.height}\n${shown.path}` }
     } catch (error) {
       return { text: `map failed: ${(error as Error).message}` }
     }
@@ -211,29 +220,47 @@ export const register: Register = on => {
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
     if (e.surface !== 'terminal' || e.props.tool !== TOOL || e.props.isErrored) return next(e)
 
-    const shown = e.props.output as Partial<TShown> | undefined
+    let shown: Partial<TShown> | undefined
+    try {
+      shown = typeof e.props.output === 'string' ? JSON.parse(e.props.output) : undefined
+    } catch {
+      return next(e)
+    }
     if (!shown?.path) return next(e)
-
-    const png = pictures.get(shown.path)
-    const maxColumns = Math.max(10, Math.min(MAX_COLUMNS, (e.viewport?.columns ?? Infinity) - MARGIN))
-    const box = boxFor(shown.width && shown.height ? { width: shown.width, height: shown.height } : FALLBACK_SIZE, maxColumns)
-    const { Box, Text, Image, Link } = $.ui.resolve(e)
-
-    return (
-      <Box flexDirection="column" gap={1} marginTop={1} marginBottom={1}>
-        <Text dimColor>
-          {shown.source} · {shown.caption}
-        </Text>
-        <Image
-          source={png ? { png } : { file: shown.path, format: 'png', generation: shown.width }}
-          columns={box.columns}
-          rows={box.rows}
-          alt={`[map] ${shown.caption}`}
-        />
-        <Text dimColor>
-          <Link href={fileUrl(shown.path)} label={shown.path} />
-        </Text>
-      </Box>
-    )
+    return draw($, e, shown as TShown)
   })
+
+  // Reads back the text /map answered: "<source>: <caption> · <w>×<h>\n<path>".
+  on('ui.render', { component: 'CommandOutput' }, async ($, e, next) => {
+    if (e.surface !== 'terminal' || e.props.command !== 'map' || e.props.isErrored) return next(e)
+
+    const match = /^(?:inline-maps: )?(.+?): (.+) · (\d+)×(\d+)\n(\/\S+\.png)$/.exec(e.props.text.trim())
+    if (!match) return next(e)
+    const [, source = '', caption = '', width, height, path = ''] = match
+    return draw($, e, { source, caption, width: Number(width), height: Number(height), path })
+  })
+}
+
+const draw = ($: EngineInterface, e: RenderInput<'ToolResult' | 'CommandOutput', 'terminal'>, shown: TShown) => {
+  const png = pictures.get(shown.path)
+  const maxColumns = Math.max(10, Math.min(MAX_COLUMNS, (e.viewport?.columns ?? Infinity) - MARGIN))
+  const box = boxFor(shown.width && shown.height ? { width: shown.width, height: shown.height } : FALLBACK_SIZE, maxColumns)
+  const { Box, Text, Image, Link } = $.ui.resolve(e)
+
+  return (
+    <Box flexDirection="column" gap={1} marginTop={1} marginBottom={1}>
+      <Text dimColor>
+        {shown.source} · {shown.caption}
+      </Text>
+      <Image
+        source={png ? { png } : { file: shown.path, format: 'png', generation: shown.width }}
+        columns={box.columns}
+        rows={box.rows}
+        alt={`[map] ${shown.caption}`}
+      />
+      <Text dimColor>
+        <Link href={fileUrl(shown.path)} label={shown.path} />
+      </Text>
+    </Box>
+  )
 }
