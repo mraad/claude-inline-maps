@@ -209,7 +209,7 @@ set -g focus-events on</code></pre>
   <tbody>
     <tr><td><code>bbox</code></td><td><code>minx,miny,maxx,maxy</code> in degrees</td><td>The extent of the map service. For tiles, the world.</td></tr>
     <tr><td><code>layers</code></td><td>WMS layer names, or ArcGIS layer ids (sent as <code>show:&lt;ids&gt;</code>)</td><td>The first named WMS layer. All ArcGIS layers.</td></tr>
-    <tr><td><code>width</code></td><td>Pixels, 64 to 2000</td><td>800. Tiles ignore this option.</td></tr>
+    <tr><td><code>width</code></td><td>Pixels, 64 to 2000</td><td>800. Tiles ignore this option. The height is also 2000 or less: a tall map gets a smaller width.</td></tr>
     <tr><td><code>marker</code></td><td><code>lon,lat</code> or <code>lon,lat,label</code> in degrees. The plugin draws a red pin at the point. The label goes in the caption.</td><td>No pin.</td></tr>
   </tbody>
 </table>

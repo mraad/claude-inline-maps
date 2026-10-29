@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { markerPixel, parseBbox, parseMarker, plan, type TInput, type TPlan } from './maps'
+import { markerPixel, parseBbox, parseMarker, plan, sizeFor, type TInput, type TPlan } from './maps'
 
 const never = async (url: string): Promise<string> => {
   throw new Error(`unexpected fetch: ${url}`)
@@ -149,6 +149,13 @@ test('XYZ template picks a zoom that stays within a 4x4 grid', async () => {
   if (city.kind !== 'tiles') throw new Error('expected tiles')
   expect(city.columns * city.rows).toBeLessThanOrEqual(16)
   expect(city.caption).toMatch(/^zoom 1[0-9] /)
+})
+
+test('sizeFor keeps the aspect at the height cap and ignores a non-numeric width', () => {
+  // 1° x 10° box: 800 wide would need ~8000 rows; shrink the width instead of stretching.
+  expect(sizeFor(0.1)).toEqual({ width: 200, height: 2000 })
+  expect(sizeFor(2, Number('abc'))).toEqual({ width: 800, height: 400 })
+  expect(sizeFor(2, 10)).toEqual({ width: 64, height: 64 })
 })
 
 test('parseMarker takes lon,lat and an optional one-line label', () => {

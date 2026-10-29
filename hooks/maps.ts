@@ -47,10 +47,13 @@ export const parseMarker = (text?: string): TMarker | null => {
   return label ? { lon, lat, label } : { lon, lat }
 }
 
-const sizeFor = (aspect: number, requested = DEFAULT_WIDTH) => {
-  const width = Math.min(MAX_WIDTH, Math.max(64, Math.round(requested)))
-  const height = Math.min(MAX_WIDTH, Math.max(64, Math.round(width / aspect)))
-  return { width, height }
+// Keeps the aspect when the height hits the cap: WMS would stretch the picture, ArcGIS would widen the extent.
+export const sizeFor = (aspect: number, requested = DEFAULT_WIDTH) => {
+  const width = Math.min(MAX_WIDTH, Math.max(64, Math.round(Number.isFinite(requested) ? requested : DEFAULT_WIDTH)))
+  const height = Math.round(width / aspect)
+  return height <= MAX_WIDTH
+    ? { width, height: Math.max(64, height) }
+    : { width: Math.max(64, Math.round(MAX_WIDTH * aspect)), height: MAX_WIDTH }
 }
 
 const RAD = Math.PI / 180
@@ -62,6 +65,7 @@ const groundAspect = ([minx, miny, maxx, maxy]: TBbox) =>
 
 // Width/height of a degree box in Web Mercator (what ArcGIS draws with imageSR=3857).
 const mercatorY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (Math.max(-85.0511, Math.min(85.0511, lat)) * RAD) / 2))
+const latOfMercator = (y: number) => Math.atan(Math.sinh(y)) / RAD
 const mercatorAspect = ([minx, miny, maxx, maxy]: TBbox) => ((maxx - minx) * RAD) / (mercatorY(maxy) - mercatorY(miny))
 
 // Pixel of a lon/lat in a picture of `size` drawn over `frame`.
@@ -77,7 +81,7 @@ export const markerPixel = ({ projection, extent: [minx, miny, maxx, maxy] }: TF
 const WEB_MERCATOR = [3857, 102100, 102113, 900913]
 const EARTH_RADIUS = 6378137
 const lonOfMetres = (x: number) => x / EARTH_RADIUS / RAD
-const latOfMetres = (y: number) => Math.atan(Math.sinh(y / EARTH_RADIUS)) / RAD
+const latOfMetres = (y: number) => latOfMercator(y / EARTH_RADIUS)
 
 const num = (value: string, name: string): number => {
   const parsed = Number(value)
@@ -251,10 +255,7 @@ const ogcApi = async (input: TInput, bbox: TBbox | null, get: TText): Promise<TP
 
 const clamp = (index: number, z: number) => Math.min(2 ** z - 1, Math.max(0, Math.floor(index)))
 const tileX = (lon: number, z: number) => clamp(((lon + 180) / 360) * 2 ** z, z)
-const tileY = (lat: number, z: number) => {
-  const rad = (lat * Math.PI) / 180
-  return clamp(((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * 2 ** z, z)
-}
+const tileY = (lat: number, z: number) => clamp(((1 - mercatorY(lat) / Math.PI) / 2) * 2 ** z, z)
 
 // XYZ / WMTS RESTful template. shortcut: Web Mercator 256px tiles, whole tiles (no crop to bbox); WMTS capabilities are not read.
 const tiles = (input: TInput, bbox: TBbox | null): TPlan => {
@@ -291,7 +292,7 @@ const tiles = (input: TInput, bbox: TBbox | null): TPlan => {
   }
   // The stitched picture covers whole tiles: from tile corner (x0, y0) to (x0 + columns, y0 + rows).
   const tileLon = (x: number) => (x / 2 ** z) * 360 - 180
-  const tileLat = (y: number) => Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / 2 ** z))) / RAD
+  const tileLat = (y: number) => latOfMercator(Math.PI * (1 - (2 * y) / 2 ** z))
   return {
     kind: 'tiles',
     source: 'XYZ tiles',
