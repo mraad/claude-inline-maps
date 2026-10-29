@@ -27,7 +27,7 @@ It shows the map image in the terminal, in the Claude Code transcript.
   <dt>Tile</dt>
   <dd>One 256 × 256 px PNG in a Web Mercator grid, addressed by zoom <code>z</code>, column <code>x</code> and row <code>y</code>.</dd>
   <dt>Marker</dt>
-  <dd>A red pin that the plugin draws on the map image at one point, given as <code>marker=lon,lat[,label]</code>.</dd>
+  <dd>A red pin that the plugin draws on the map image at one point, given as <code>lon,lat[,label]</code>. The <code>marker</code> option takes one or more markers, separated by <code>;</code>.</dd>
   <dt>Bounding box</dt>
   <dd><code>bbox=minx,miny,maxx,maxy</code>, in degrees, EPSG:4326.</dd>
   <dt>Terminal</dt>
@@ -80,7 +80,7 @@ The plugin tests the patterns in the order of the table.
   <li><b>Download.</b> <code>curl</code> gets each URL into one temporary directory per Claude Code process. The plugin uses <code>curl</code> because <code>$.http.fetch</code> returns text only.</li>
   <li><b>Check.</b> The plugin accepts a body only if the HTTP status is 2xx and the bytes are a PNG.</li>
   <li><b>Stitch.</b> For tiles, <code>magick montage</code> joins the tiles into one PNG. The plugin then deletes the tile files.</li>
-  <li><b>Pin.</b> If you give a marker, <code>markerPixel()</code> converts the point to a pixel of the map image. <code>magick -draw</code> draws the pin. The label goes in the caption.</li>
+  <li><b>Pin.</b> If you give markers, <code>markerPixel()</code> converts each point to a pixel of the map image. <code>magick -draw</code> draws the pins. The labels go in the caption.</li>
   <li><b>Cache.</b> The plugin keeps the last 12 map images in memory as base64. It keeps the bytes only if the map image is 2 MiB or less.</li>
   <li><b>Draw.</b> A <code>ui.render</code> hook replaces the transcript row with an image, a caption and a file link. If the cache has no bytes, the terminal reads the file from its path.</li>
 </ol>
@@ -184,20 +184,20 @@ set -g focus-events on</code></pre>
   <li>Look at the tool result row. It shows the map image.</li>
 </ol>
 
-<h3>With a marker</h3>
+<h3>With markers</h3>
 
 <ol>
-  <li>Add the marker option to the command:
-    <pre><code>/map https://tile.openstreetmap.org/{z}/{x}/{y}.png bbox=2.22,48.81,2.47,48.91 marker=2.2945,48.8584,Eiffel Tower</code></pre>
+  <li>Add the marker option to the command. This example has three markers. The third marker has no label:
+    <pre><code>/map https://tile.openstreetmap.org/{z}/{x}/{y}.png bbox=2.22,48.81,2.47,48.91 marker=2.2945,48.8584,Eiffel Tower;2.3376,48.8606,Louvre;2.3499,48.8530</code></pre>
   </li>
   <li>Push Enter.</li>
-  <li>Look at the map image. The pin tip is on the point. The caption ends with the label.</li>
+  <li>Look at the map image. Each pin tip is on its point. The caption ends with the labels.</li>
 </ol>
 
-<p>You can also ask Claude: <code>show a map of Paris and place a marker on the Eiffel Tower</code>.</p>
+<p>You can also ask Claude: <code>show a map of Paris with markers on the Eiffel Tower and the Louvre</code>.</p>
 
 <p>
-<img src="docs/images/xyz-marker.png" width="480" alt="OpenStreetMap map of Paris with a red pin on the Eiffel Tower">
+<img src="docs/images/xyz-marker.png" width="480" alt="OpenStreetMap map of Paris with red pins on the Eiffel Tower, the Louvre and Notre-Dame">
 </p>
 
 <h3>Options</h3>
@@ -210,7 +210,7 @@ set -g focus-events on</code></pre>
     <tr><td><code>bbox</code></td><td><code>minx,miny,maxx,maxy</code> in degrees</td><td>The extent of the map service. For tiles, the world.</td></tr>
     <tr><td><code>layers</code></td><td>WMS layer names, or ArcGIS layer ids (sent as <code>show:&lt;ids&gt;</code>)</td><td>The first named WMS layer. All ArcGIS layers.</td></tr>
     <tr><td><code>width</code></td><td>Pixels, 64 to 2000</td><td>800. Tiles ignore this option. The height is also 2000 or less: a tall map gets a smaller width.</td></tr>
-    <tr><td><code>marker</code></td><td><code>lon,lat</code> or <code>lon,lat,label</code> in degrees. The plugin draws a red pin at the point. The label goes in the caption.</td><td>No pin.</td></tr>
+    <tr><td><code>marker</code></td><td><code>lon,lat</code> or <code>lon,lat,label</code> in degrees. Separate markers with <code>;</code>. The plugin draws a red pin at each point. The labels go in the caption.</td><td>No pin.</td></tr>
   </tbody>
 </table>
 
@@ -226,7 +226,7 @@ set -g focus-events on</code></pre>
   <li>The plugin draws in the terminal only. The desktop app, VS Code and mobile show text.</li>
   <li>The plugin saves each map image as <code>map-N.png</code>. Nothing deletes the temporary directories. They collect in <code>$TMPDIR</code> across sessions.</li>
   <li>A tile server can send an error tile with HTTP status 200. The plugin cannot detect this.</li>
-  <li>The plugin draws a marker only inside the map image. For OGC API - Maps, and for an ArcGIS map service with a projected extent other than Web Mercator, give a bounding box with the marker.</li>
+  <li>The plugin draws at most 20 markers, and only inside the map image. For OGC API - Maps, and for an ArcGIS map service with a projected extent other than Web Mercator, give a bounding box with the marker.</li>
 </ul>
 
 <blockquote>

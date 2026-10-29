@@ -163,20 +163,21 @@ const download = async ($: EngineInterface, request: TPlan): Promise<TShown> => 
     base64 = (await $.fs.read(out, { as: 'bytes' })).base64
   }
 
-  const { marker, frame } = request
+  const { markers, frame } = request
   const drawn = pngSize(base64)
-  if (marker && frame && drawn) {
-    const { x, y } = markerPixel(frame, drawn, marker.lon, marker.lat)
-    const [px, py] = [Math.round(x), Math.round(y)]
-    // A pin with its tip on the point; numbers only, no text, so no font is needed. The label goes in the caption.
-    const pinned = await $.process.run([
-      'magick', out,
-      '-fill', '#d7263d', '-stroke', 'white', '-strokewidth', '2',
-      '-draw', `path 'M ${px},${py} L ${px - 11},${py - 24} A 12,12 0 1,1 ${px + 11},${py - 24} Z'`,
-      '-fill', 'white', '-stroke', 'none',
-      '-draw', `circle ${px},${py - 29} ${px + 4},${py - 29}`,
-      out,
-    ])
+  if (markers && frame && drawn) {
+    // A pin per marker with its tip on the point; numbers only, no text, so no font is needed. Labels go in the caption.
+    const pins = markers.flatMap(marker => {
+      const { x, y } = markerPixel(frame, drawn, marker.lon, marker.lat)
+      const [px, py] = [Math.round(x), Math.round(y)]
+      return [
+        '-fill', '#d7263d', '-stroke', 'white', '-strokewidth', '2',
+        '-draw', `path 'M ${px},${py} L ${px - 11},${py - 24} A 12,12 0 1,1 ${px + 11},${py - 24} Z'`,
+        '-fill', 'white', '-stroke', 'none',
+        '-draw', `circle ${px},${py - 29} ${px + 4},${py - 29}`,
+      ]
+    })
+    const pinned = await $.process.run(['magick', out, ...pins, out])
     if (pinned.exitCode !== 0) {
       throw new Error(`drawing the marker needs ImageMagick (magick): ${pinned.stderr.trim() || 'not found'}`)
     }
@@ -210,7 +211,7 @@ export const register: Register = on => {
           bbox: { type: 'string', description: 'Optional minx,miny,maxx,maxy in degrees (EPSG:4326)' },
           layers: { type: 'string', description: 'Optional layer name(s): WMS layers, or ArcGIS layer ids' },
           width: { type: 'number', description: 'Optional image width in pixels (default 800)' },
-          marker: { type: 'string', description: 'Optional pin: lon,lat or lon,lat,label in degrees (EPSG:4326); the label is shown in the caption' },
+          marker: { type: 'string', description: 'Optional pins: lon,lat or lon,lat,label in degrees (EPSG:4326); several separated by ";" (at most 20); labels are optional and shown in the caption' },
         },
         required: ['url'],
       },
@@ -219,7 +220,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'map',
       description: 'Draw a map service inline',
-      argumentHint: '<url> [bbox=minx,miny,maxx,maxy] [layers=a,b] [width=800] [marker=lon,lat,label]',
+      argumentHint: '<url> [bbox=minx,miny,maxx,maxy] [layers=a,b] [width=800] [marker=lon,lat[,label][;lon,lat[,label]]]',
     })
 
     return next(e)
@@ -237,7 +238,7 @@ export const register: Register = on => {
 
   on('command.run', { command: 'map' }, async ($, e) => {
     const input = parseArgs(e.args)
-    if (!input) return { text: 'Usage: /map <url> [bbox=minx,miny,maxx,maxy] [layers=a,b] [width=800] [marker=lon,lat,label]' }
+    if (!input) return { text: 'Usage: /map <url> [bbox=minx,miny,maxx,maxy] [layers=a,b] [width=800] [marker=lon,lat[,label][;lon,lat[,label]]]' }
 
     try {
       const shown = await show($, input)
