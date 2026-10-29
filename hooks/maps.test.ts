@@ -55,7 +55,10 @@ test('ArcGIS MapServer builds an export URL from the full extent', async () => {
   expect(result.source).toBe('ArcGIS MapServer')
   expect(result.url).toStartWith('https://x.test/arcgis/rest/services/USA/MapServer/export?')
   expect(result.url).toContain('bbox=-100%2C30%2C-90%2C40')
-  expect(result.url).toContain('size=800%2C800')
+  // A degree extent is drawn in Web Mercator: 10° of longitude at 30–40°N is taller than wide there.
+  expect(result.url).toContain('imageSR=3857')
+  expect(result.url).toContain('size=800%2C979')
+  expect(result.caption).toBe('Layers · EPSG:3857')
   expect(result.url).toContain('layers=show%3A0%2C2')
   expect(result.url).toContain('f=image')
 })
@@ -89,7 +92,8 @@ test('WMS 1.3.0 flips the EPSG:4326 axis order', async () => {
   expect(result.url).toContain('layers=roads')
   expect(result.url).toContain('crs=EPSG%3A4326')
   expect(result.url).toContain('bbox=40,-10,50,10')
-  expect(result.url).toContain('width=800&height=400')
+  // 20° x 10° at 45°N: width shrinks by cos 45°.
+  expect(result.url).toContain('width=800&height=566')
 })
 
 test('WMS 1.1.1 keeps lon,lat order and honours a user bbox and layer', async () => {
@@ -131,7 +135,7 @@ test('OGC API - Maps follows the landing page map link, or takes a /map URL', as
   expect(viaLink.accept).toBe('image/png')
 
   const direct = image(await plan({ url: 'https://x.test/api/collections/a/map', bbox: '0,0,10,10' }, never))
-  expect(direct.url).toBe('https://x.test/api/collections/a/map?width=800&height=800&f=png&bbox=0,0,10,10')
+  expect(direct.url).toBe('https://x.test/api/collections/a/map?width=800&height=803&f=png&bbox=0,0,10,10')
 })
 
 test('XYZ template picks a zoom that stays within a 4x4 grid', async () => {

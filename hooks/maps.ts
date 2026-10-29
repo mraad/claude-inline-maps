@@ -35,6 +35,17 @@ const sizeFor = (aspect: number, requested = DEFAULT_WIDTH) => {
   return { width, height }
 }
 
+const RAD = Math.PI / 180
+
+// Width/height of a degree box on the ground: a degree of longitude shrinks by cos(latitude).
+// WMS and OGC API stretch the image to the requested size, so this keeps shapes true near mid-latitude.
+const groundAspect = ([minx, miny, maxx, maxy]: TBbox) =>
+  ((maxx - minx) * Math.cos(((miny + maxy) / 2) * RAD)) / (maxy - miny)
+
+// Width/height of a degree box in Web Mercator (what ArcGIS draws with imageSR=3857).
+const mercatorY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (Math.max(-85.0511, Math.min(85.0511, lat)) * RAD) / 2))
+const mercatorAspect = ([minx, miny, maxx, maxy]: TBbox) => ((maxx - minx) * RAD) / (mercatorY(maxy) - mercatorY(miny))
+
 const num = (value: string, name: string): number => {
   const parsed = Number(value)
   if (!Number.isFinite(parsed)) throw new Error(`${name} is not a number: ${value}`)
@@ -89,11 +100,15 @@ const arcgis = async (input: TInput, bbox: TBbox | null, get: TText): Promise<TP
         return { xmin: full.xmin, ymin: full.ymin, xmax: full.xmax, ymax: full.ymax, sr }
       })()
 
-  const { width, height } = sizeFor((extent.xmax - extent.xmin) / (extent.ymax - extent.ymin), input.width)
+  // ArcGIS keeps square pixels, so a degree extent drawn in EPSG:4326 comes out stretched east-west; draw it in Web Mercator.
+  const box: TBbox = [extent.xmin, extent.ymin, extent.xmax, extent.ymax]
+  const isDegrees = extent.sr === 4326
+  const imageSR = isDegrees ? 3857 : extent.sr
+  const { width, height } = sizeFor(isDegrees ? mercatorAspect(box) : (box[2] - box[0]) / (box[3] - box[1]), input.width)
   const params: Record<string, string | number> = {
-    bbox: [extent.xmin, extent.ymin, extent.xmax, extent.ymax].join(','),
+    bbox: box.join(','),
     bboxSR: extent.sr,
-    imageSR: extent.sr,
+    imageSR,
     size: `${width},${height}`,
     format: isImage ? 'png' : 'png32',
     f: 'image',
@@ -105,7 +120,7 @@ const arcgis = async (input: TInput, bbox: TBbox | null, get: TText): Promise<TP
     kind: 'image',
     source: isImage ? 'ArcGIS ImageServer' : 'ArcGIS MapServer',
     url: `${base}/${isImage ? 'exportImage' : 'export'}?${query(params)}`,
-    caption: `${name} · EPSG:${extent.sr}`,
+    caption: `${name} · EPSG:${imageSR}`,
   }
 }
 
@@ -140,7 +155,7 @@ const wms = async (input: TInput, bbox: TBbox | null, get: TText): Promise<TPlan
     area = box.every(Boolean) ? (box.map((value, i) => num(value!, `bbox[${i}]`)) as TBbox) : WORLD
   }
 
-  const { width, height } = sizeFor((area[2] - area[0]) / (area[3] - area[1]), input.width)
+  const { width, height } = sizeFor(groundAspect(area), input.width)
   const isNew = version.startsWith('1.3')
   // 1.3.0 axis order for EPSG:4326 is lat,lon; 1.1.1 is lon,lat.
   const box = isNew ? [area[1], area[0], area[3], area[2]] : area
@@ -179,7 +194,7 @@ const ogcApi = async (input: TInput, bbox: TBbox | null, get: TText): Promise<TP
   }
 
   const area = bbox ?? WORLD
-  const { width, height } = sizeFor((area[2] - area[0]) / (area[3] - area[1]), input.width)
+  const { width, height } = sizeFor(groundAspect(area), input.width)
   const params: Record<string, string | number> = { width, height, f: 'png' }
   if (bbox) params.bbox = bbox.join(',')
   return {

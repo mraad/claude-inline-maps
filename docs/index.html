@@ -195,6 +195,10 @@
       <b>NOTE</b>
       <p>WMS 1.3.0 uses latitude, longitude axis order for EPSG:4326. WMS 1.1.1 uses longitude, latitude. The plugin swaps the bounding box for 1.3.0.</p>
     </div>
+    <div class="note">
+      <b>NOTE</b>
+      <p>One degree of longitude is shorter than one degree of latitude, by the cosine of the latitude. The plugin sets the map image size from the ground distance, not from the degrees. ArcGIS gets <code>imageSR=3857</code> (Web Mercator). WMS and OGC API - Maps get a width that is multiplied by the cosine of the middle latitude.</p>
+    </div>
   </section>
 
   <section>
